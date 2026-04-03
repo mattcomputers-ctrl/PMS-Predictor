@@ -92,8 +92,10 @@ class App
         $router->post('/setup', 'SettingsController@saveSetup');
 
         // API endpoints (JSON)
-        $router->get('/api/series/search', 'ApiController@seriesSearch');
+        $router->post('/api/sync', 'ApiController@sync');
+        $router->get('/api/series/list', 'ApiController@seriesList');
         $router->get('/api/series/formulas', 'ApiController@seriesFormulas');
+        $router->post('/api/anchors/save', 'ApiController@saveAnchors');
         $router->post('/api/predictions/generate', 'ApiController@generate');
         $router->post('/api/predictions/save', 'ApiController@savePrediction');
         $router->post('/api/predictions/save-batch', 'ApiController@saveBatch');

@@ -1,110 +1,110 @@
 <?php include dirname(__DIR__) . '/layouts/main.php'; ?>
 
-<!-- Card 1: Series Selection -->
-<div class="card" id="seriesCard">
+<?php
+$db = \PantonePredictor\Core\Database::getInstance();
+$lastSync = get_setting('last_sync', '');
+$formulaCount = (int)($db->fetch("SELECT COUNT(*) AS cnt FROM cms_formulas")['cnt'] ?? 0);
+$seriesList = \PantonePredictor\Services\SyncService::getSeriesList();
+?>
+
+<!-- Sync Bar -->
+<div class="card">
     <div class="card-header">
-        <h2 class="card-title">1. Select Ink Series</h2>
+        <div>
+            <h2 class="card-title" style="display:inline">CMS Formulas</h2>
+            <span class="text-muted" style="margin-left:0.5rem">
+                <?= $formulaCount ?> formulas synced
+                <?= $lastSync ? '(last: ' . format_date($lastSync) . ')' : '(never synced)' ?>
+            </span>
+        </div>
+        <button class="btn btn-sm btn-primary" id="syncBtn" <?= !is_cms_configured() ? 'disabled' : '' ?>>
+            Sync from CMS
+        </button>
+    </div>
+</div>
+
+<!-- Series Filter -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Select Series</h2>
     </div>
     <div class="card-body">
-        <div class="form-group">
-            <label for="seriesSearch">Series Name</label>
-            <div class="search-wrapper">
-                <input type="text" id="seriesSearch" class="search-input"
-                       placeholder="Type to search series (e.g., PRIMASET, PULSE UV)..."
-                       autocomplete="off" <?= !is_cms_configured() ? 'disabled' : '' ?>>
-                <span class="search-spinner" id="seriesSpinner"><span class="spinner"></span></span>
-                <div class="autocomplete-dropdown" id="seriesDropdown"></div>
-            </div>
-        </div>
-        <div id="seriesInfo" class="hidden">
-            <div class="d-flex align-center gap-1">
-                <strong id="selectedSeriesName"></strong>
-                <span class="badge badge-info" id="seriesFormulaCount"></span>
-                <button class="btn btn-sm btn-outline" id="changeSeries">Change</button>
-            </div>
+        <div class="form-group mb-0">
+            <select id="seriesSelect" style="max-width:400px;" <?= empty($seriesList) ? 'disabled' : '' ?>>
+                <option value="">— Choose an ink series —</option>
+                <?php foreach ($seriesList as $s): ?>
+                <option value="<?= e($s['series_prefix']) ?>">
+                    <?= e($s['series_prefix']) ?> (<?= $s['formula_count'] ?> formulas)
+                </option>
+                <?php endforeach; ?>
+            </select>
         </div>
     </div>
 </div>
 
-<!-- Card 2: Anchor Selection with PMS Number Assignment -->
-<div class="card hidden" id="anchorsCard">
+<!-- Formula Table -->
+<div class="card hidden" id="formulasCard">
     <div class="card-header">
-        <h2 class="card-title">2. Select Anchors &amp; Assign PMS Numbers</h2>
-        <div class="btn-group">
-            <button class="btn btn-sm btn-outline" id="selectAll">Select All with PMS</button>
-            <button class="btn btn-sm btn-outline" id="deselectAll">Deselect All</button>
+        <h2 class="card-title">Pantone Formulas</h2>
+        <div class="d-flex align-center gap-1">
+            <input type="text" id="formulaFilter" class="filter-input" placeholder="Filter..." style="max-width:200px">
+            <button class="btn btn-sm btn-outline" id="selectAllBtn">Select All</button>
+            <button class="btn btn-sm btn-outline" id="deselectAllBtn">Deselect All</button>
         </div>
     </div>
     <div class="card-body" style="position:relative;">
         <p class="text-muted mb-1" style="font-size:0.85rem;">
-            Check the formulas you want to use as anchors and enter their Pantone number.
-            Only pigment materials (2A, 3A, FL, 3U, 2U, DS) are shown — additives are excluded.
+            Check formulas to use as anchors. Enter or confirm the Pantone number for each.
+            Only pigment materials (2A, 3A, FL, 3U, 2U, DS) are used — additives are excluded.
         </p>
-        <div class="toolbar">
-            <div class="toolbar-left">
-                <input type="text" id="anchorFilter" class="filter-input" placeholder="Filter formulas...">
-            </div>
-            <div class="toolbar-right">
-                <span class="selection-info">
-                    <strong id="selectedCount">0</strong> anchors selected
-                </span>
-            </div>
-        </div>
-        <div id="anchorWarning" class="warning-banner hidden">
-            <span class="warning-banner-icon">&#9888;</span>
-            <span id="anchorWarningText"></span>
+        <div class="selection-info mb-1">
+            <strong id="selectedCount">0</strong> anchors selected
         </div>
         <div class="table-responsive" style="max-height:500px;overflow-y:auto;">
-            <table class="table table-compact" id="anchorsTable">
+            <table class="table table-compact" id="formulasTable">
                 <thead>
                     <tr>
-                        <th class="checkbox-cell" style="width:40px"></th>
+                        <th class="checkbox-cell" style="width:40px"><input type="checkbox" id="headerCb"></th>
                         <th style="width:90px">Item Code</th>
                         <th>Description</th>
                         <th style="width:120px">PMS Number</th>
                         <th>Pigment Components</th>
-                        <th style="width:70px">Pigment %</th>
+                        <th style="width:70px">Pig. %</th>
                     </tr>
                 </thead>
-                <tbody id="anchorsBody"></tbody>
+                <tbody id="formulasBody"></tbody>
             </table>
         </div>
-        <div id="anchorsLoading" class="loading-overlay hidden">
-            <div class="loading-message"><span class="spinner"></span> Loading formulas from CMS...</div>
+        <div id="formulasLoading" class="loading-overlay hidden">
+            <div class="loading-message"><span class="spinner"></span> Loading formulas...</div>
         </div>
     </div>
 </div>
 
-<!-- Card 3: Generation Options -->
-<div class="card hidden" id="optionsCard">
-    <div class="card-header">
-        <h2 class="card-title">3. Generate</h2>
-    </div>
-    <div class="card-body">
-        <div class="form-grid-3col">
-            <div class="form-group">
-                <label for="kValue">Nearest Neighbors (K)</label>
-                <input type="number" id="kValue" value="<?= e(get_setting('prediction_k', '5')) ?>" min="3" max="15">
-                <span class="form-help">How many nearby anchors to blend</span>
+<!-- Generation Options + Button (always visible when formulas loaded) -->
+<div class="card hidden" id="generateCard" style="position:sticky;bottom:0;z-index:50;border-top:3px solid var(--accent);">
+    <div class="d-flex align-center justify-between gap-2" style="flex-wrap:wrap;">
+        <div class="d-flex align-center gap-2">
+            <div class="form-group mb-0">
+                <label for="kValue" style="font-size:0.8rem">K Neighbors</label>
+                <input type="number" id="kValue" value="<?= e(get_setting('prediction_k', '5')) ?>" min="3" max="15" style="width:70px">
             </div>
-            <div class="form-group">
-                <label for="noiseValue">Noise Threshold</label>
-                <input type="number" id="noiseValue" value="<?= e(get_setting('noise_threshold', '2')) ?>" min="1" max="5">
-                <span class="form-help">Min anchors a pigment must appear in</span>
+            <div class="form-group mb-0">
+                <label for="noiseValue" style="font-size:0.8rem">Noise Threshold</label>
+                <input type="number" id="noiseValue" value="<?= e(get_setting('noise_threshold', '2')) ?>" min="1" max="5" style="width:70px">
             </div>
-            <div class="form-group" style="align-self:flex-end;">
-                <button class="btn btn-accent btn-lg" id="generateBtn" disabled>
-                    Generate Predictions
-                </button>
-            </div>
+            <span class="text-muted" style="font-size:0.85rem" id="generateInfo"></span>
         </div>
+        <button class="btn btn-accent btn-lg" id="generateBtn" disabled>
+            Generate Predictions
+        </button>
     </div>
 </div>
 
-<!-- Card 4: Results -->
+<!-- Results -->
 <div class="card hidden" id="resultsCard">
     <div class="card-header">
-        <h2 class="card-title">4. Predicted Formulas (Pigment Only — 100%)</h2>
+        <h2 class="card-title">Predicted Formulas (Pigment Only — 100%)</h2>
         <div class="btn-group">
             <button class="btn btn-sm btn-primary" id="saveAllBtn">Save All</button>
             <button class="btn btn-sm btn-outline" id="saveSelectedBtn">Save Selected</button>
@@ -116,7 +116,7 @@
         <div id="resultsWarnings"></div>
         <div id="skippedAnchorsInfo" class="hidden mb-1"></div>
         <div class="toolbar">
-            <input type="text" id="resultsFilter" class="filter-input" placeholder="Filter results by PMS number...">
+            <input type="text" id="resultsFilter" class="filter-input" placeholder="Filter by PMS number...">
             <div class="btn-group">
                 <button class="btn btn-sm btn-outline" id="resultSelectAll">Select All</button>
                 <button class="btn btn-sm btn-outline" id="resultDeselectAll">Deselect All</button>
@@ -126,7 +126,7 @@
             <table class="table" id="resultsTable">
                 <thead>
                     <tr>
-                        <th class="checkbox-cell"><input type="checkbox" id="resultHeaderCheckbox"></th>
+                        <th class="checkbox-cell"><input type="checkbox" id="resultHeaderCb"></th>
                         <th>Color</th>
                         <th>PMS</th>
                         <th>Name</th>
@@ -139,7 +139,7 @@
             </table>
         </div>
         <div id="resultsLoading" class="loading-overlay hidden">
-            <div class="loading-message"><span class="spinner"></span> Generating pigment-only predictions...</div>
+            <div class="loading-message"><span class="spinner"></span> Generating predictions...</div>
         </div>
     </div>
 </div>

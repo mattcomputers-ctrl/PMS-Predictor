@@ -58,6 +58,37 @@ CREATE TABLE IF NOT EXISTS prediction_components (
     INDEX idx_prediction (prediction_id)
 ) ENGINE=InnoDB;
 
+-- ── CMS Formulas (synced from CMS) ─────────────────────────
+CREATE TABLE IF NOT EXISTS cms_formulas (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    item_code VARCHAR(30) NOT NULL,
+    description VARCHAR(500) NOT NULL DEFAULT '',
+    series_prefix VARCHAR(200) NOT NULL DEFAULT '',
+    detected_pms VARCHAR(30) NOT NULL DEFAULT '',
+    user_pms VARCHAR(30) NOT NULL DEFAULT '',
+    is_anchor TINYINT(1) NOT NULL DEFAULT 0,
+    synced_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_item_code (item_code),
+    INDEX idx_series (series_prefix),
+    INDEX idx_pms (detected_pms),
+    INDEX idx_anchor (is_anchor),
+    FULLTEXT idx_desc (description)
+) ENGINE=InnoDB;
+
+-- ── CMS Formula Components (synced from CMS) ──────────────
+CREATE TABLE IF NOT EXISTS cms_formula_components (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    formula_id INT UNSIGNED NOT NULL,
+    component_code VARCHAR(30) NOT NULL,
+    component_description VARCHAR(200) NOT NULL DEFAULT '',
+    percentage DECIMAL(8,6) NOT NULL,
+    is_pigment TINYINT(1) NOT NULL DEFAULT 0,
+    sort_order SMALLINT NOT NULL DEFAULT 0,
+    FOREIGN KEY (formula_id) REFERENCES cms_formulas(id) ON DELETE CASCADE,
+    INDEX idx_formula (formula_id),
+    INDEX idx_pigment (is_pigment)
+) ENGINE=InnoDB;
+
 -- ── Audit Log ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS audit_log (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
