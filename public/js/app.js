@@ -23,8 +23,8 @@
     //  PREDICTIONS PAGE
     // ══════════════════════════════════════════════════════════
 
-    const seriesSelect = document.getElementById('seriesSelect');
-    if (seriesSelect) initPredictionsPage();
+    const seriesInput = document.getElementById('seriesInput');
+    if (seriesInput) initPredictionsPage();
 
     function initPredictionsPage() {
         const formulasCard = document.getElementById('formulasCard');
@@ -33,6 +33,7 @@
         const formulasBody = document.getElementById('formulasBody');
         const generateBtn  = document.getElementById('generateBtn');
         const syncBtn      = document.getElementById('syncBtn');
+        const matchCount   = document.getElementById('seriesMatchCount');
 
         let formulasData = [];
         let predictionsData = [];
@@ -53,11 +54,14 @@
             }
         });
 
-        // ── Series selection ─────────────────────────────────
-        seriesSelect.addEventListener('change', async function () {
-            selectedSeries = this.value;
+        // ── Series text input ────────────────────────────────
+        seriesInput.addEventListener('input', debounce(async function () {
+            selectedSeries = this.value.trim();
             hide(resultsCard);
-            if (!selectedSeries) { hide(formulasCard); hide(generateCard); return; }
+            if (selectedSeries.length < 2) {
+                hide(formulasCard); hide(generateCard); hide(matchCount);
+                return;
+            }
 
             show(formulasCard);
             show(generateCard);
@@ -66,12 +70,15 @@
             try {
                 const data = await api(`/api/series/formulas?series=${encodeURIComponent(selectedSeries)}`);
                 formulasData = data.formulas || [];
+                matchCount.textContent = `${data.total} Pantone formulas found matching "${selectedSeries}"`;
+                show(matchCount);
                 renderFormulas(formulasData);
+                if (data.total === 0) { hide(formulasCard); hide(generateCard); }
             } catch (e) {
                 formulasBody.innerHTML = `<tr><td colspan="6" class="text-danger">${esc(e.message)}</td></tr>`;
             }
             hide(document.getElementById('formulasLoading'));
-        });
+        }, 500));
 
         // ── Formula table ────────────────────────────────────
         function renderFormulas(formulas) {

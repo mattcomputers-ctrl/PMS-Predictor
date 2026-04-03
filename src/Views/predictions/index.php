@@ -4,7 +4,6 @@
 $db = \PantonePredictor\Core\Database::getInstance();
 $lastSync = get_setting('last_sync', '');
 $formulaCount = (int)($db->fetch("SELECT COUNT(*) AS cnt FROM cms_formulas")['cnt'] ?? 0);
-$seriesList = \PantonePredictor\Services\SyncService::getSeriesList();
 ?>
 
 <!-- Sync Bar -->
@@ -26,19 +25,15 @@ $seriesList = \PantonePredictor\Services\SyncService::getSeriesList();
 <!-- Series Filter -->
 <div class="card">
     <div class="card-header">
-        <h2 class="card-title">Select Series</h2>
+        <h2 class="card-title">Series Name</h2>
     </div>
     <div class="card-body">
         <div class="form-group mb-0">
-            <select id="seriesSelect" style="max-width:400px;" <?= empty($seriesList) ? 'disabled' : '' ?>>
-                <option value="">— Choose an ink series —</option>
-                <?php foreach ($seriesList as $s): ?>
-                <option value="<?= e($s['series_prefix']) ?>">
-                    <?= e($s['series_prefix']) ?> (<?= $s['formula_count'] ?> formulas)
-                </option>
-                <?php endforeach; ?>
-            </select>
+            <input type="text" id="seriesInput" placeholder="Type a series name (e.g. PRIMASET, PULSE UV, VINYLCURE)..."
+                   style="max-width:500px;" <?= $formulaCount === 0 ? 'disabled' : '' ?>>
+            <span class="form-help">Filters synced formulas whose description contains this text + PANTONE</span>
         </div>
+        <div id="seriesMatchCount" class="mt-1 text-muted hidden" style="font-size:0.85rem;"></div>
     </div>
 </div>
 

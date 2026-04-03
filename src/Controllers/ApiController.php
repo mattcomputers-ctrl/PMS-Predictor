@@ -49,7 +49,7 @@ class ApiController
 
     /**
      * GET /api/series/formulas?series=...
-     * Get synced formulas for a series (pigment components only).
+     * Search synced formulas whose description contains the series text AND "PANTONE".
      */
     public function seriesFormulas(): void
     {
@@ -60,7 +60,7 @@ class ApiController
         }
 
         try {
-            $formulas = SyncService::getSeriesFormulas($series);
+            $formulas = SyncService::searchFormulas($series);
 
             $result = [];
             foreach ($formulas as $f) {

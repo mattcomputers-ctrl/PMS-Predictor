@@ -143,7 +143,28 @@ class SyncService
     }
 
     /**
-     * Get formulas for a series, with pigment components.
+     * Search formulas whose description contains the series text AND "PANTONE".
+     * This is the main method used by the predictions page.
+     */
+    public static function searchFormulas(string $seriesText): array
+    {
+        $db = Database::getInstance();
+        $formulas = $db->fetchAll("
+            SELECT *
+            FROM cms_formulas
+            WHERE description LIKE ? AND description LIKE '%PANTONE%'
+            ORDER BY description
+        ", ['%' . $seriesText . '%']);
+
+        if (empty($formulas)) {
+            return [];
+        }
+
+        return self::attachPigments($formulas);
+    }
+
+    /**
+     * Get formulas for a series prefix, with pigment components.
      */
     public static function getSeriesFormulas(string $seriesPrefix): array
     {
@@ -159,7 +180,15 @@ class SyncService
             return [];
         }
 
-        // Load pigment components
+        return self::attachPigments($formulas);
+    }
+
+    /**
+     * Attach pigment components to an array of formula rows.
+     */
+    private static function attachPigments(array $formulas): array
+    {
+        $db = Database::getInstance();
         $ids = array_column($formulas, 'id');
         $ph  = implode(',', array_fill(0, count($ids), '?'));
         $comps = $db->fetchAll("
