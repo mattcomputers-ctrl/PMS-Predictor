@@ -87,6 +87,7 @@ class App
         // Settings (admin only)
         $router->get('/settings', 'SettingsController@index');
         $router->post('/settings', 'SettingsController@save');
+        $router->post('/settings/password', 'SettingsController@changePassword');
         $router->get('/setup', 'SettingsController@setup');
         $router->post('/setup', 'SettingsController@saveSetup');
 

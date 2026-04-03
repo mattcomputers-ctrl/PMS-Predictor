@@ -72,4 +72,31 @@
     </div>
 </form>
 
+<div class="card mt-2">
+    <div class="card-header">
+        <h2 class="card-title">Change Password</h2>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="/settings/password">
+            <?= csrf_field() ?>
+            <div class="form-grid-3col">
+                <div class="form-group">
+                    <label for="current_password">Current Password</label>
+                    <input type="password" id="current_password" name="current_password" required>
+                </div>
+                <div class="form-group">
+                    <label for="new_password">New Password</label>
+                    <input type="password" id="new_password" name="new_password" required minlength="8">
+                    <span class="form-help">Minimum 8 characters</span>
+                </div>
+                <div class="form-group">
+                    <label for="confirm_password">Confirm New Password</label>
+                    <input type="password" id="confirm_password" name="confirm_password" required minlength="8">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Update Password</button>
+        </form>
+    </div>
+</div>
+
 <?php include dirname(__DIR__) . '/layouts/footer.php'; ?>

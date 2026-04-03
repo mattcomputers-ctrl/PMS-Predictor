@@ -76,6 +76,47 @@ class SettingsController
         redirect('/settings');
     }
 
+    public function changePassword(): void
+    {
+        CSRF::validateRequest();
+        $db = Database::getInstance();
+
+        $current  = $_POST['current_password'] ?? '';
+        $new      = $_POST['new_password'] ?? '';
+        $confirm  = $_POST['confirm_password'] ?? '';
+
+        if ($new === '' || $current === '') {
+            $_SESSION['_flash']['error'] = 'All password fields are required.';
+            redirect('/settings');
+            return;
+        }
+
+        if (strlen($new) < 8) {
+            $_SESSION['_flash']['error'] = 'New password must be at least 8 characters.';
+            redirect('/settings');
+            return;
+        }
+
+        if ($new !== $confirm) {
+            $_SESSION['_flash']['error'] = 'New passwords do not match.';
+            redirect('/settings');
+            return;
+        }
+
+        $user = $db->fetch("SELECT * FROM users WHERE id = ?", [current_user_id()]);
+        if (!$user || !password_verify($current, $user['password_hash'])) {
+            $_SESSION['_flash']['error'] = 'Current password is incorrect.';
+            redirect('/settings');
+            return;
+        }
+
+        $hash = password_hash($new, PASSWORD_BCRYPT);
+        $db->query("UPDATE users SET password_hash = ? WHERE id = ?", [$hash, current_user_id()]);
+
+        $_SESSION['_flash']['success'] = 'Password updated successfully.';
+        redirect('/settings');
+    }
+
     public function setup(): void
     {
         if (is_cms_configured()) {
