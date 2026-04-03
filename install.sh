@@ -152,14 +152,16 @@ mysql -e "FLUSH PRIVILEGES;" 2>/dev/null
 # ── Deploy Application ────────────────────────────────────
 log "Deploying application to ${APP_DIR}..."
 
-# Determine source directory (where this script is)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_URL="https://github.com/mattcomputers-ctrl/PMS-Predictor.git"
 
-# Create app directory
-mkdir -p "${APP_DIR}"
-
-# Copy files (excluding .git, tools, install.sh itself from sensitive locations)
-rsync -a --exclude='.git' --exclude='tools' "${SCRIPT_DIR}/" "${APP_DIR}/"
+if [ -d "${APP_DIR}/.git" ]; then
+    log "Existing install detected, pulling latest..."
+    git -C "${APP_DIR}" pull --ff-only
+else
+    # Fresh install: clone the repo
+    rm -rf "${APP_DIR}"
+    git clone "${REPO_URL}" "${APP_DIR}"
+fi
 
 # ── Generate Config ───────────────────────────────────────
 log "Generating configuration..."
