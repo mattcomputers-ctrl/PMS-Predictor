@@ -215,7 +215,11 @@ class ApiController
                     'b' => (float) $pmsData['b'],
                 ];
 
-                $result = InterpolationEngine::predict($targetLab, $anchors, $k, $noiseThreshold);
+                // Exclude this color's own anchor so it must interpolate from others
+                $filteredAnchors = array_values(array_filter($anchors, fn($a) => $a['pmsNumber'] !== $pmsKey));
+                if (empty($filteredAnchors)) { $skippedColors++; continue; }
+
+                $result = InterpolationEngine::predict($targetLab, $filteredAnchors, $k, $noiseThreshold);
                 if (empty($result['components'])) { $skippedColors++; continue; }
 
                 $predictions[] = [
