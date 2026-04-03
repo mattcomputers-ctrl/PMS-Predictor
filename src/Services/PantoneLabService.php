@@ -39,10 +39,10 @@ class PantoneLabService
      *
      * @return array|null ['L' => float, 'a' => float, 'b' => float, 'name' => string, 'hex' => string]
      */
-    public static function getLabForColor(string $colorIdentifier): ?array
+    public static function getLabForColor(string|int $colorIdentifier): ?array
     {
         $colors = self::load();
-        $id = trim($colorIdentifier);
+        $id = trim((string) $colorIdentifier);
 
         // Strategy 1: Direct key match
         if (isset($colors[$id])) {

@@ -22,9 +22,9 @@ class CMSFormulaService
     /**
      * Check if a component code is a pigment (color-bearing material).
      */
-    public static function isPigment(string $componentCode): bool
+    public static function isPigment(string|int $componentCode): bool
     {
-        $prefix = strtoupper(substr($componentCode, 0, 2));
+        $prefix = strtoupper(substr((string) $componentCode, 0, 2));
         return in_array($prefix, self::PIGMENT_PREFIXES, true);
     }
 
