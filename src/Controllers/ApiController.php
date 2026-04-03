@@ -203,16 +203,11 @@ class ApiController
             // Get all PMS colors from reference dataset
             $allPms = PantoneLabService::getAllColors();
 
-            // Exclude PMS numbers already used as anchors
-            $usedPms = [];
-            foreach ($anchors as $a) { $usedPms[$a['pmsNumber']] = true; }
-
-            // Generate predictions
+            // Generate predictions for ALL PMS colors (including anchors for comparison)
             $predictions = [];
             $skippedColors = 0;
 
             foreach ($allPms as $pmsKey => $pmsData) {
-                if (isset($usedPms[$pmsKey])) continue;
 
                 $targetLab = [
                     'L' => (float) $pmsData['L'],
