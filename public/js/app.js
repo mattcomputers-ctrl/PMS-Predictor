@@ -263,9 +263,16 @@
         });
 
         async function saveBatch(items) {
+            const CHUNK = 50;
+            let totalSaved = 0, totalSkipped = 0;
             try {
-                const data = await api('/api/predictions/save-batch', { method: 'POST', body: { series: selectedSeries, predictions: items } });
-                alert(data.message || `${data.saved} saved, ${data.skipped} skipped.`);
+                for (let i = 0; i < items.length; i += CHUNK) {
+                    const chunk = items.slice(i, i + CHUNK);
+                    const data = await api('/api/predictions/save-batch', { method: 'POST', body: { series: selectedSeries, predictions: chunk } });
+                    totalSaved += data.saved || 0;
+                    totalSkipped += data.skipped || 0;
+                }
+                alert(`${totalSaved} saved, ${totalSkipped} skipped (already exist).`);
             } catch (e) { alert('Save failed: ' + e.message); }
         }
 
