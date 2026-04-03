@@ -1,0 +1,16 @@
+{
+    "name": "ink/pantone-predictor",
+    "description": "Pantone formula prediction system for ink manufacturing",
+    "type": "project",
+    "require": {
+        "php": ">=8.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "PantonePredictor\\": "src/"
+        },
+        "files": [
+            "src/Helpers/functions.php"
+        ]
+    }
+}
