@@ -56,7 +56,7 @@
 
         // ── Series text input ────────────────────────────────
         seriesInput.addEventListener('input', debounce(async function () {
-            selectedSeries = this.value.trim();
+            selectedSeries = seriesInput.value.trim();
             hide(resultsCard);
             if (selectedSeries.length < 2) {
                 hide(formulasCard); hide(generateCard); hide(matchCount);
