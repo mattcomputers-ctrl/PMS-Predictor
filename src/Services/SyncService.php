@@ -70,8 +70,24 @@ class SyncService
             $db->query("DELETE FROM cms_formula_components");
             $db->query("DELETE FROM cms_formulas");
 
+            $excluded = 0;
+
             foreach ($items as $item) {
                 $desc = $item['Description'];
+                $components = $componentsByRecipe[$item['CostingRecipe']] ?? [];
+
+                // Check if any component triggers an exclusion
+                $hasExcluded = false;
+                foreach ($components as $c) {
+                    if (CMSFormulaService::isExcludedIngredient($c['component_code'])) {
+                        $hasExcluded = true;
+                        break;
+                    }
+                }
+                if ($hasExcluded) {
+                    $excluded++;
+                    continue; // Skip this entire formula
+                }
 
                 // Extract series prefix (everything before PANTONE)
                 $pantonePos = stripos($desc, 'PANTONE');
@@ -88,11 +104,10 @@ class SyncService
                     'description'   => $desc,
                     'series_prefix' => $seriesPrefix,
                     'detected_pms'  => $detectedPms,
-                    'user_pms'      => $detectedPms, // Pre-fill with detected
+                    'user_pms'      => $detectedPms,
                     'is_anchor'     => 0,
                 ]);
 
-                $components = $componentsByRecipe[$item['CostingRecipe']] ?? [];
                 foreach ($components as $i => $c) {
                     $isPigment = CMSFormulaService::isPigment($c['component_code']) ? 1 : 0;
                     $db->insert('cms_formula_components', [
@@ -119,8 +134,9 @@ class SyncService
 
             return [
                 'synced'     => $synced,
+                'excluded'   => $excluded,
                 'components' => $totalComponents,
-                'message'    => "Synced {$synced} formulas with {$totalComponents} components from CMS.",
+                'message'    => "Synced {$synced} formulas ({$excluded} excluded for containing B04/R15/P04/P01/E-prefix ingredients).",
             ];
         } catch (\Throwable $e) {
             $db->rollback();

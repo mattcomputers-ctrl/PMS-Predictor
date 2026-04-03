@@ -154,11 +154,20 @@ class InterpolationEngine
         }
         $confidence = round($confidence, 1);
 
+        // Step 9: Spectral metamerism check
+        $metamerism = SpectralService::evaluateMetamerism($targetLab, $nearest);
+        if ($metamerism['risk'] === 'high') {
+            $warnings[] = 'Metamerism risk: HIGH (' . $metamerism['crossings'] . ' spectral crossings)';
+        } elseif ($metamerism['risk'] === 'medium') {
+            $warnings[] = 'Metamerism risk: medium (' . $metamerism['crossings'] . ' spectral crossings)';
+        }
+
         return [
             'components'     => $components,
             'confidence'     => $confidence,
             'nearestAnchors' => array_map([self::class, 'anchorSummary'], $nearest),
             'warnings'       => $warnings,
+            'metamerism'     => $metamerism,
         ];
     }
 

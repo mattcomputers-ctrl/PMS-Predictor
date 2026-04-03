@@ -12,11 +12,45 @@ class CMSFormulaService
      */
     public const PIGMENT_PREFIXES = ['2A', '3A', 'FL', '3U', '2U', 'DS'];
 
+    /**
+     * Excluded ingredient patterns.
+     * Formulas containing ANY of these are excluded entirely.
+     * - Substrings checked anywhere in component code: B04, R15, P04, P01
+     * - Prefix check: codes starting with E
+     */
+    public const EXCLUDED_SUBSTRINGS = ['B04', 'R15', 'P04', 'P01'];
+    public const EXCLUDED_PREFIXES = ['E'];
+
     private CMSDatabase $cms;
 
     public function __construct()
     {
         $this->cms = CMSDatabase::getInstance();
+    }
+
+    /**
+     * Check if a component code triggers an exclusion.
+     * Returns true if the formula should be EXCLUDED.
+     */
+    public static function isExcludedIngredient(string|int $componentCode): bool
+    {
+        $code = strtoupper((string) $componentCode);
+
+        // Check prefix exclusions
+        foreach (self::EXCLUDED_PREFIXES as $prefix) {
+            if (str_starts_with($code, $prefix)) {
+                return true;
+            }
+        }
+
+        // Check substring exclusions
+        foreach (self::EXCLUDED_SUBSTRINGS as $substr) {
+            if (str_contains($code, $substr)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

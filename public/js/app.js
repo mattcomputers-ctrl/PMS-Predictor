@@ -216,6 +216,10 @@
             body.innerHTML = filtered.map((p, idx) => {
                 const cls = p.confidence >= 70 ? 'high' : (p.confidence >= 40 ? 'medium' : 'low');
                 const compStr = p.components.slice(0, 3).map(c => `${c.code} (${(c.percentage * 100).toFixed(1)}%)`).join(', ');
+                const met = p.metamerism || {};
+                const metBadge = met.risk === 'high' ? '<span class="badge badge-danger" title="3+ spectral crossings">HIGH MET</span>'
+                    : met.risk === 'medium' ? '<span class="badge badge-warning" title="2 spectral crossings">MED MET</span>'
+                    : '<span class="badge badge-success" title="0-1 spectral crossings">LOW MET</span>';
 
                 return `<tr>
                     <td class="checkbox-cell"><input type="checkbox" class="result-cb" data-idx="${idx}"></td>
@@ -223,7 +227,7 @@
                     <td><strong>${esc(p.pmsNumber)}</strong></td>
                     <td style="font-size:0.85rem">${esc(p.pmsName)}</td>
                     <td><div class="confidence-bar"><div class="confidence-bar-track"><div class="confidence-bar-fill ${cls}" style="width:${p.confidence}%"></div></div><span class="confidence-value">${p.confidence.toFixed(1)}%</span></div></td>
-                    <td style="font-size:0.8rem">${esc(compStr)}</td>
+                    <td style="font-size:0.8rem">${metBadge} ${esc(compStr)}</td>
                     <td><button class="expand-toggle" data-ridx="${idx}">&#9654;</button></td>
                 </tr>
                 <tr class="detail-row" id="rdetail-${idx}"><td colspan="7"><div class="detail-content">
@@ -231,6 +235,7 @@
                     ${p.components.map((c, ci) => `<tr><td>${ci + 1}</td><td><strong>${esc(c.code)}</strong></td><td>${esc(c.description)}</td><td class="text-right">${(c.percentage * 100).toFixed(2)}%</td></tr>`).join('')}
                     </tbody><tfoot><tr><th colspan="3" class="text-right">Total:</th><th class="text-right">${(p.components.reduce((s, c) => s + c.percentage, 0) * 100).toFixed(2)}%</th></tr></tfoot></table>
                     <div class="mt-1" style="font-size:0.8rem;color:var(--text-muted)"><strong>Nearest anchors:</strong> ${p.nearestAnchors.map(a => `${a.pmsNumber || a.itemCode} (&#916;E ${a.distance})`).join(', ')}</div>
+                    <div class="mt-1" style="font-size:0.8rem"><strong>Metamerism:</strong> ${met.crossings ?? '?'} spectral crossing${met.crossings !== 1 ? 's' : ''} — ${met.risk || 'unknown'} risk</div>
                 </div></td></tr>`;
             }).join('');
         }
