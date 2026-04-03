@@ -176,10 +176,10 @@ sed "s|unix:/run/php/php-fpm.sock|unix:${PHP_FPM_SOCK}|g" \
     "${APP_DIR}/nginx/pantone-predictor.conf" > /etc/nginx/sites-available/pantone-predictor
 ln -sf /etc/nginx/sites-available/pantone-predictor /etc/nginx/sites-enabled/pantone-predictor
 rm -f /etc/nginx/sites-enabled/default
-nginx -t 2>/dev/null && systemctl reload nginx
+nginx -t 2>/dev/null
 
 # ── Restart Services ──────────────────────────────────────
-log "Restarting services..."
+log "Starting services..."
 systemctl restart "php${PHP_VER}-fpm"
 systemctl restart nginx
 systemctl enable nginx mysql "php${PHP_VER}-fpm" 2>/dev/null
