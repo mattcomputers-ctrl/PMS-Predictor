@@ -82,6 +82,7 @@ class App
         // Predictions
         $router->get('/predictions', 'PredictionController@index');
         $router->get('/predictions/saved', 'PredictionController@saved');
+        $router->get('/predictions/saved/view', 'PredictionController@saved');
         $router->get('/custom-lab', 'PredictionController@customLab');
 
         // Settings (admin only)
@@ -101,6 +102,8 @@ class App
         $router->post('/api/predictions/save-batch', 'ApiController@saveBatch');
         $router->post('/api/predictions/delete', 'ApiController@deletePrediction');
         $router->get('/api/predictions/export', 'ApiController@export');
+        $router->get('/api/saved-series', 'ApiController@savedSeriesList');
+        $router->post('/api/saved-series/delete', 'ApiController@deleteSeries');
         $router->post('/api/custom-lab/match', 'ApiController@customLabMatch');
         $router->get('/api/cms/test', 'ApiController@testCmsConnection');
 

@@ -306,9 +306,7 @@
         const labA = document.getElementById('labA'), labB = document.getElementById('labB');
         const swatch = document.getElementById('labSwatch'), valDiv = document.getElementById('labValues');
         const matchBtn = document.getElementById('customMatchBtn');
-        const seriesInput = document.getElementById('customSeriesSearch');
-        const dropdown = document.getElementById('customSeriesDropdown');
-        const info = document.getElementById('customSeriesInfo');
+        const seriesSelect = document.getElementById('customSeriesSelect');
         const resCard = document.getElementById('customResultsCard');
         let selectedSeries = '', currentResult = null;
 
@@ -321,30 +319,11 @@
         }
         [labL, labA, labB].forEach(el => el.addEventListener('input', updatePreview));
 
-        seriesInput?.addEventListener('input', debounce(async function () {
-            const q = this.value.trim(); if (q.length < 2) { hide(dropdown); return; }
-            document.getElementById('customSeriesSpinner')?.classList.add('active');
-            try {
-                const db = await fetch('/api/series/list').then(r => r.json());
-                const filtered = db.filter(s => s.series_prefix.toLowerCase().includes(q.toLowerCase()));
-                dropdown.innerHTML = filtered.slice(0, 20).map(r =>
-                    `<div class="autocomplete-item" data-series="${esc(r.series_prefix)}"><span>${esc(r.series_prefix)}</span><span class="count">${r.formula_count}</span></div>`
-                ).join('') || '<div class="autocomplete-item text-muted">No series found</div>';
-                show(dropdown);
-            } catch (e) { dropdown.innerHTML = `<div class="autocomplete-item text-danger">${esc(e.message)}</div>`; show(dropdown); }
-            document.getElementById('customSeriesSpinner')?.classList.remove('active');
-        }, 200));
-
-        dropdown?.addEventListener('click', e => {
-            const item = e.target.closest('.autocomplete-item');
-            if (!item?.dataset.series) return;
-            selectedSeries = item.dataset.series; seriesInput.disabled = true; hide(dropdown);
-            document.getElementById('customSelectedSeries').textContent = selectedSeries; show(info); updatePreview();
+        seriesSelect?.addEventListener('change', function () {
+            selectedSeries = this.value;
+            hide(resCard);
+            updatePreview();
         });
-        document.getElementById('customChangeSeries')?.addEventListener('click', () => {
-            selectedSeries = ''; seriesInput.value = ''; seriesInput.disabled = false; hide(info); hide(resCard); updatePreview(); seriesInput.focus();
-        });
-        document.addEventListener('click', e => { if (!e.target.closest('.search-wrapper')) hide(dropdown); });
 
         matchBtn?.addEventListener('click', async () => {
             show(resCard); show(document.getElementById('customLoading'));
@@ -361,6 +340,10 @@
                     return `<tr><td>${i + 1}</td><td><strong>${esc(c.code)}</strong></td><td>${esc(c.description)}</td><td class="text-right">${pct.toFixed(2)}%</td></tr>`;
                 }).join('');
                 document.getElementById('customTotalPct').textContent = total.toFixed(2) + '%';
+                const met = data.metamerism || {};
+                document.getElementById('customMetamerism').innerHTML = met.risk
+                    ? `<strong>Metamerism:</strong> ${met.crossings} spectral crossing${met.crossings !== 1 ? 's' : ''} — <span class="badge badge-${met.risk === 'high' ? 'danger' : met.risk === 'medium' ? 'warning' : 'success'}">${met.risk.toUpperCase()}</span> risk`
+                    : '';
             } catch (e) { document.getElementById('customResultsSummary').innerHTML = `<span class="text-danger">${esc(e.message)}</span>`; }
             hide(document.getElementById('customLoading'));
         });

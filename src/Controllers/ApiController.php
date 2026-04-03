@@ -342,6 +342,48 @@ class ApiController
         exit;
     }
 
+    /**
+     * GET /api/saved-series — List all saved series with counts.
+     */
+    public function savedSeriesList(): void
+    {
+        $db = Database::getInstance();
+        $series = $db->fetchAll("
+            SELECT series_name, COUNT(*) AS formula_count,
+                   ROUND(AVG(confidence_score), 1) AS avg_confidence,
+                   MAX(created_at) AS last_updated
+            FROM predictions
+            GROUP BY series_name
+            ORDER BY series_name
+        ");
+        json_response($series);
+    }
+
+    /**
+     * POST /api/saved-series/delete — Delete all predictions for a series.
+     */
+    public function deleteSeries(): void
+    {
+        CSRF::validateRequest();
+        $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+        $series = trim($input['series'] ?? '');
+        if ($series === '') { json_response(['error' => 'Series required'], 400); return; }
+
+        $db = Database::getInstance();
+        // Delete components first (cascade should handle, but be explicit)
+        $db->query("
+            DELETE pc FROM prediction_components pc
+            JOIN predictions p ON p.id = pc.prediction_id
+            WHERE p.series_name = ?
+        ", [$series]);
+        $db->query("DELETE FROM predictions WHERE series_name = ?", [$series]);
+        json_response(['success' => true, 'message' => "Deleted all predictions for '{$series}'."]);
+    }
+
+    /**
+     * POST /api/custom-lab/match — Match custom Lab values against a SAVED series.
+     * Uses saved predictions as anchors (not CMS formulas).
+     */
     public function customLabMatch(): void
     {
         CSRF::validateRequest();
@@ -357,26 +399,71 @@ class ApiController
 
         try {
             $db = Database::getInstance();
-            $formulas = $db->fetchAll("SELECT * FROM cms_formulas WHERE series_prefix = ? AND is_anchor = 1 AND user_pms != ''", [$series]);
-            $anchors = [];
-            foreach ($formulas as $f) {
-                $labData = PantoneLabService::getLabForColor($f['user_pms']);
-                if (!$labData) continue;
-                $comps = $db->fetchAll("SELECT * FROM cms_formula_components WHERE formula_id = ? AND is_pigment = 1 ORDER BY sort_order", [$f['id']]);
-                if (empty($comps)) continue;
-                $pigTotal = 0; foreach ($comps as $c) { $pigTotal += (float)$c['percentage']; }
-                $nc = []; foreach ($comps as $c) { $nc[] = ['code' => $c['component_code'], 'description' => $c['component_description'], 'percentage' => $pigTotal > 0 ? (float)$c['percentage'] / $pigTotal : 0]; }
-                $anchors[] = ['itemCode' => $f['item_code'], 'pmsNumber' => $f['user_pms'], 'pmsName' => $labData['name'] ?? $f['user_pms'],
-                    'lab' => ['L' => (float)$labData['L'], 'a' => (float)$labData['a'], 'b' => (float)$labData['b']], 'components' => $nc];
+
+            // Load saved predictions for this series as anchors
+            $savedFormulas = $db->fetchAll("
+                SELECT p.*, GROUP_CONCAT(pc.id) AS has_comps
+                FROM predictions p
+                LEFT JOIN prediction_components pc ON pc.prediction_id = p.id
+                WHERE p.series_name = ?
+                GROUP BY p.id
+            ", [$series]);
+
+            if (empty($savedFormulas)) {
+                json_response(['error' => "No saved predictions for series '{$series}'. Generate and save predictions first."], 400);
+                return;
             }
-            if (empty($anchors)) { json_response(['error' => 'No anchors configured for this series. Go to Predictions and set up anchors first.'], 400); return; }
+
+            // Build anchors from saved predictions
+            $anchors = [];
+            foreach ($savedFormulas as $f) {
+                if (empty($f['has_comps'])) continue;
+
+                $comps = $db->fetchAll(
+                    "SELECT * FROM prediction_components WHERE prediction_id = ? ORDER BY sort_order",
+                    [$f['id']]
+                );
+
+                $normalizedComps = [];
+                foreach ($comps as $c) {
+                    $normalizedComps[] = [
+                        'code'        => $c['component_code'],
+                        'description' => $c['component_description'],
+                        'percentage'  => (float) $c['percentage'],
+                    ];
+                }
+
+                $anchors[] = [
+                    'itemCode'  => 'P-' . $f['id'],
+                    'pmsNumber' => $f['pms_number'],
+                    'pmsName'   => $f['pms_name'],
+                    'lab'       => ['L' => (float)$f['lab_l'], 'a' => (float)$f['lab_a'], 'b' => (float)$f['lab_b']],
+                    'components' => $normalizedComps,
+                ];
+            }
+
+            if (empty($anchors)) {
+                json_response(['error' => 'Saved predictions have no components.'], 400);
+                return;
+            }
 
             $targetLab = ['L' => $L, 'a' => $a, 'b' => $b];
             $result = InterpolationEngine::predict($targetLab, $anchors, $k, $noiseThreshold);
-            json_response(['lab' => $targetLab, 'hex' => PantoneLabService::labToHex($L, $a, $b), 'series' => $series,
-                'confidence' => $result['confidence'], 'components' => $result['components'],
-                'nearestAnchors' => $result['nearestAnchors'], 'warnings' => $result['warnings'], 'anchorCount' => count($anchors)]);
-        } catch (\Throwable $e) { json_response(['error' => 'Match failed: ' . $e->getMessage()], 500); }
+
+            json_response([
+                'lab'            => $targetLab,
+                'hex'            => PantoneLabService::labToHex($L, $a, $b),
+                'series'         => $series,
+                'confidence'     => $result['confidence'],
+                'components'     => $result['components'],
+                'nearestAnchors' => $result['nearestAnchors'],
+                'warnings'       => $result['warnings'],
+                'metamerism'     => $result['metamerism'] ?? null,
+                'anchorCount'    => count($anchors),
+            ]);
+        } catch (\Throwable $e) {
+            json_response(['error' => 'Match failed: ' . $e->getMessage()], 500);
+        }
     }
 
     public function testCmsConnection(): void
