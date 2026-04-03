@@ -37,25 +37,27 @@ class SyncService
 
         // Batch load all recipe components
         $recipeIds = array_unique(array_filter(array_column($items, 'CostingRecipe')));
-        $placeholders = implode(',', array_fill(0, count($recipeIds), '?'));
-        $allComponents = $cms->fetchAll("
-            SELECT
-                rd.Recipe,
-                ing.ItemCode AS component_code,
-                ing.Description AS component_description,
-                rd.QtyReqd AS percentage,
-                rd.Line
-            FROM RecipeDetail rd
-            JOIN Item ing ON ing.Item = rd.Item
-            WHERE rd.Recipe IN ({$placeholders})
-              AND rd.Context = 'UI'
-            ORDER BY rd.Recipe, rd.Line
-        ", array_values($recipeIds));
-
-        // Group components by recipe
+        // Batch load components in chunks of 2000 (SQL Server limit is 2100 params)
         $componentsByRecipe = [];
-        foreach ($allComponents as $c) {
-            $componentsByRecipe[$c['Recipe']][] = $c;
+        foreach (array_chunk($recipeIds, 2000) as $chunk) {
+            $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+            $rows = $cms->fetchAll("
+                SELECT
+                    rd.Recipe,
+                    ing.ItemCode AS component_code,
+                    ing.Description AS component_description,
+                    rd.QtyReqd AS percentage,
+                    rd.Line
+                FROM RecipeDetail rd
+                JOIN Item ing ON ing.Item = rd.Item
+                WHERE rd.Recipe IN ({$placeholders})
+                  AND rd.Context = 'UI'
+                ORDER BY rd.Recipe, rd.Line
+            ", array_values($chunk));
+
+            foreach ($rows as $c) {
+                $componentsByRecipe[$c['Recipe']][] = $c;
+            }
         }
 
         // Write to local database
