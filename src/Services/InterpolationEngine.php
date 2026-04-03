@@ -7,10 +7,17 @@ namespace PantonePredictor\Services;
 class InterpolationEngine
 {
     /**
+     * Metamerism penalty weight.
+     * Higher = stronger preference for anchors sharing the same pigments.
+     * 0 = pure Lab distance (original behavior).
+     */
+    private const METAMERISM_PENALTY = 15.0;
+
+    /**
      * Predict a pigment-only formula for a target Lab color.
-     *
-     * Each anchor's components should already be pigment-only and normalized to 100%.
-     * The output formula will be 100% pigment materials.
+     * Uses a metamerism-aware selection: prefers anchors that share pigments
+     * with the closest anchor, reducing the chance of mixing dissimilar
+     * pigment chemistries that could cause metamerism.
      *
      * @param array $targetLab      ['L' => float, 'a' => float, 'b' => float]
      * @param array $anchorFormulas Array of anchors, each with:
@@ -35,15 +42,33 @@ class InterpolationEngine
             ];
         }
 
-        // Step 1: Compute distances (Delta-E76)
+        // Step 1: Compute Lab distances
         foreach ($anchorFormulas as &$anchor) {
             $anchor['distance'] = self::deltaE76($targetLab, $anchor['lab']);
+            $anchor['pigmentSet'] = self::getPigmentSet($anchor['components']);
         }
         unset($anchor);
 
+        // Sort by Lab distance to find the closest anchor
         usort($anchorFormulas, fn($a, $b) => $a['distance'] <=> $b['distance']);
 
-        // Step 2: Select K nearest
+        // Step 2: Anti-metamerism scoring
+        // The reference pigment set is from the closest anchor in Lab space.
+        // All other anchors are scored by Lab distance + a penalty for using
+        // different pigments. This pushes the K selection toward anchors
+        // that share pigment chemistry with the nearest match.
+        $referencePigments = $anchorFormulas[0]['pigmentSet'];
+
+        foreach ($anchorFormulas as &$anchor) {
+            $pigmentDissimilarity = self::jaccardDistance($referencePigments, $anchor['pigmentSet']);
+            $anchor['metamerismScore'] = $anchor['distance'] + ($pigmentDissimilarity * self::METAMERISM_PENALTY);
+        }
+        unset($anchor);
+
+        // Re-sort by metamerism-aware score
+        usort($anchorFormulas, fn($a, $b) => $a['metamerismScore'] <=> $b['metamerismScore']);
+
+        // Step 3: Select K nearest (by metamerism-aware score)
         $actualK = min($k, count($anchorFormulas));
         $nearest = array_slice($anchorFormulas, 0, $actualK);
 
@@ -54,7 +79,9 @@ class InterpolationEngine
             $warnings[] = 'Very few anchors — prediction may be unreliable.';
         }
 
-        // Step 3: Inverse-distance weights
+        // Step 4: Inverse-distance weights (using Lab distance, not metamerism score)
+        // We select neighbors with the metamerism-aware score, but weight them
+        // by Lab distance so closer colors still contribute more.
         $epsilon = 0.0001;
         $totalWeight = 0;
         foreach ($nearest as &$anch) {
@@ -68,7 +95,7 @@ class InterpolationEngine
         }
         unset($anch);
 
-        // Step 4: Weighted blend of pigment components
+        // Step 5: Weighted blend of pigment components
         $blended = [];
         $anchorCount = [];
 
@@ -88,7 +115,7 @@ class InterpolationEngine
             }
         }
 
-        // Step 5: Noise filter
+        // Step 6: Noise filter
         if ($actualK >= $noiseThreshold) {
             foreach ($blended as $code => $comp) {
                 if ($anchorCount[$code] < $noiseThreshold) {
@@ -97,7 +124,7 @@ class InterpolationEngine
             }
         }
 
-        // Step 6: Normalize to 100% (pigment-only)
+        // Step 7: Normalize to 100%
         $total = array_sum(array_column($blended, 'weightedQty'));
         if ($total > 0) {
             foreach ($blended as &$comp) {
@@ -119,7 +146,7 @@ class InterpolationEngine
             ];
         }
 
-        // Step 7: Confidence score
+        // Step 8: Confidence score
         $avgDist = array_sum(array_column($nearest, 'distance')) / $actualK;
         $confidence = max(0, min(100, 100 - ($avgDist * 2)));
         if ($actualK < $k) {
@@ -145,6 +172,38 @@ class InterpolationEngine
             ($lab1['a'] - $lab2['a']) ** 2 +
             ($lab1['b'] - $lab2['b']) ** 2
         );
+    }
+
+    /**
+     * Extract the set of pigment codes from a component list.
+     */
+    private static function getPigmentSet(array $components): array
+    {
+        $set = [];
+        foreach ($components as $c) {
+            $set[$c['code']] = true;
+        }
+        return $set;
+    }
+
+    /**
+     * Jaccard distance: 1 - (intersection / union).
+     * 0 = identical pigment sets, 1 = completely different.
+     */
+    private static function jaccardDistance(array $setA, array $setB): float
+    {
+        if (empty($setA) && empty($setB)) {
+            return 0.0;
+        }
+
+        $intersection = count(array_intersect_key($setA, $setB));
+        $union = count($setA) + count($setB) - $intersection;
+
+        if ($union === 0) {
+            return 0.0;
+        }
+
+        return 1.0 - ($intersection / $union);
     }
 
     private static function anchorSummary(array $anchor): array
