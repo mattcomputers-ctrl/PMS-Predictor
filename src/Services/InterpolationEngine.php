@@ -54,25 +54,6 @@ class InterpolationEngine
             $warnings[] = 'Very few anchors — prediction may be unreliable.';
         }
 
-        // Exact match shortcut
-        if ($nearest[0]['distance'] < 0.5) {
-            $comps = [];
-            foreach ($nearest[0]['components'] as $i => $c) {
-                $comps[] = [
-                    'code'        => $c['code'],
-                    'description' => $c['description'],
-                    'percentage'  => round($c['percentage'], 6),
-                    'sort_order'  => $i,
-                ];
-            }
-            return [
-                'components'     => $comps,
-                'confidence'     => 100.0,
-                'nearestAnchors' => [self::anchorSummary($nearest[0])],
-                'warnings'       => [],
-            ];
-        }
-
         // Step 3: Inverse-distance weights
         $epsilon = 0.0001;
         $totalWeight = 0;
