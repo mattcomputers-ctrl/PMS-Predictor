@@ -15,7 +15,6 @@ class ApiController
 {
     /**
      * GET /api/series/search?q=...
-     * Autocomplete series names from CMS.
      */
     public function seriesSearch(): void
     {
@@ -41,7 +40,7 @@ class ApiController
 
     /**
      * GET /api/series/formulas?series=...
-     * Get all formulas in a series with Lab data status.
+     * Get ALL formulas in a series with pigment breakdown.
      */
     public function seriesFormulas(): void
     {
@@ -62,25 +61,19 @@ class ApiController
 
             $formulas = [];
             foreach ($items as $item) {
-                $colorPart = $item['color_part'] ?? '';
-                $pmsNumber = CMSFormulaService::extractPmsNumber($colorPart);
-                $labData   = PantoneLabService::getLabForColor($pmsNumber);
-
-                $topComponents = array_slice($item['components'] ?? [], 0, 3);
-                $topSummary = array_map(function ($c) {
-                    return $c['component_code'] . ' (' . round($c['percentage'] * 100, 1) . '%)';
-                }, $topComponents);
+                // Build pigment summary
+                $pigmentSummary = array_map(function ($p) {
+                    return $p['component_code'] . ' (' . round((float)$p['percentage'] * 100, 1) . '%)';
+                }, array_slice($item['pigments'], 0, 4));
 
                 $formulas[] = [
                     'itemCode'       => $item['ItemCode'],
                     'description'    => $item['Description'],
-                    'colorPart'      => $colorPart,
-                    'pmsNumber'      => $pmsNumber,
-                    'componentCount' => count($item['components'] ?? []),
-                    'topComponents'  => implode(', ', $topSummary),
-                    'hasLabData'     => $labData !== null,
-                    'lab'            => $labData ? ['L' => $labData['L'], 'a' => $labData['a'], 'b' => $labData['b']] : null,
-                    'hex'            => $labData['hex'] ?? null,
+                    'detectedPms'    => $item['detected_pms'] ?? '',
+                    'pigmentCount'   => $item['pigment_count'],
+                    'pigmentTotal'   => round($item['pigment_total'] * 100, 1),
+                    'pigmentSummary' => implode(', ', $pigmentSummary),
+                    'hasPigments'    => $item['pigment_count'] > 0,
                 ];
             }
 
@@ -88,7 +81,7 @@ class ApiController
                 'series'   => $series,
                 'formulas' => $formulas,
                 'total'    => count($formulas),
-                'withLab'  => count(array_filter($formulas, fn($f) => $f['hasLabData'])),
+                'withPigments' => count(array_filter($formulas, fn($f) => $f['hasPigments'])),
             ]);
         } catch (\Throwable $e) {
             json_response(['error' => 'Failed to load formulas: ' . $e->getMessage()], 500);
@@ -97,19 +90,31 @@ class ApiController
 
     /**
      * POST /api/predictions/generate
-     * Generate predictions for all PMS colors not in the series.
+     * Generate predictions using user-assigned PMS numbers on anchors.
+     *
+     * Expects JSON body:
+     * {
+     *   "series": "O/S S/F PRIMASET",
+     *   "anchors": [
+     *     {"itemCode": "E1026", "pmsNumber": "286"},
+     *     {"itemCode": "E1054", "pmsNumber": "Yellow"},
+     *     ...
+     *   ],
+     *   "k": 5,
+     *   "noiseThreshold": 2
+     * }
      */
     public function generate(): void
     {
         CSRF::validateRequest();
 
         $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
-        $series       = trim($input['series'] ?? '');
-        $anchorCodes  = $input['anchorCodes'] ?? [];
-        $k            = (int) ($input['k'] ?? (int) get_setting('prediction_k', '5'));
+        $series        = trim($input['series'] ?? '');
+        $anchorInputs  = $input['anchors'] ?? [];
+        $k             = (int) ($input['k'] ?? (int) get_setting('prediction_k', '5'));
         $noiseThreshold = (int) ($input['noiseThreshold'] ?? (int) get_setting('noise_threshold', '2'));
 
-        if ($series === '' || empty($anchorCodes)) {
+        if ($series === '' || empty($anchorInputs)) {
             json_response(['error' => 'Series and at least one anchor required'], 400);
             return;
         }
@@ -117,59 +122,71 @@ class ApiController
         try {
             $startTime = microtime(true);
 
-            // Load anchor formulas from CMS
+            // Get item codes from input
+            $itemCodes = array_column($anchorInputs, 'itemCode');
+            $pmsMap = []; // itemCode => pmsNumber
+            foreach ($anchorInputs as $a) {
+                $pmsMap[$a['itemCode']] = trim($a['pmsNumber'] ?? '');
+            }
+
+            // Load pigment-only components from CMS (normalized to 100%)
             $svc = new CMSFormulaService();
-            $anchorData = $svc->getFormulaComponents($anchorCodes);
+            $formulaData = $svc->getPigmentComponents($itemCodes);
 
             // Build anchor list with Lab coordinates
             $anchors = [];
-            foreach ($anchorData as $code => $item) {
-                $desc = $item['description'] ?? '';
-                if (preg_match('/PANTONE\s+(.+)$/i', $desc, $m)) {
-                    $colorPart = trim($m[1]);
-                } else {
+            $skippedAnchors = [];
+
+            foreach ($formulaData as $code => $item) {
+                $pmsNumber = $pmsMap[$code] ?? '';
+                if ($pmsNumber === '') {
+                    $skippedAnchors[] = ['itemCode' => $code, 'reason' => 'No PMS number assigned'];
                     continue;
                 }
 
-                $pmsNumber = CMSFormulaService::extractPmsNumber($colorPart);
                 $labData = PantoneLabService::getLabForColor($pmsNumber);
                 if (!$labData) {
+                    $skippedAnchors[] = ['itemCode' => $code, 'pms' => $pmsNumber, 'reason' => 'PMS number not found in Lab dataset'];
+                    continue;
+                }
+
+                if (empty($item['pigments'])) {
+                    $skippedAnchors[] = ['itemCode' => $code, 'reason' => 'No pigment components'];
                     continue;
                 }
 
                 $anchors[] = [
                     'itemCode'   => $code,
                     'pmsNumber'  => $pmsNumber,
-                    'pmsName'    => $colorPart,
+                    'pmsName'    => $labData['name'] ?? $pmsNumber,
                     'lab'        => ['L' => (float) $labData['L'], 'a' => (float) $labData['a'], 'b' => (float) $labData['b']],
-                    'components' => $item['components'],
+                    'components' => $item['pigments'], // Already normalized to 100%
                 ];
             }
 
             if (empty($anchors)) {
-                json_response(['error' => 'No valid anchors with Lab data found'], 400);
+                json_response([
+                    'error' => 'No valid anchors. Make sure PMS numbers are assigned and exist in the reference dataset.',
+                    'skippedAnchors' => $skippedAnchors,
+                ], 400);
                 return;
             }
 
-            // Get all PMS colors in the dataset
+            // Get all PMS colors
             $allPms = PantoneLabService::getAllColors();
 
-            // Get PMS numbers already in this series
-            $existingPms = [];
-            $seriesFormulas = $svc->getSeriesFormulas($series);
-            foreach ($seriesFormulas as $item) {
-                $colorPart = $item['color_part'] ?? '';
-                $pmsNum = CMSFormulaService::extractPmsNumber($colorPart);
-                $existingPms[$pmsNum] = true;
+            // Get PMS numbers already used as anchors
+            $usedPms = [];
+            foreach ($anchors as $a) {
+                $usedPms[$a['pmsNumber']] = true;
             }
 
-            // Generate predictions for missing colors
+            // Generate predictions for all PMS colors not already an anchor
             $predictions = [];
-            $skipped = [];
+            $skippedColors = 0;
 
             foreach ($allPms as $pmsKey => $pmsData) {
-                // Skip if already exists in series
-                if (isset($existingPms[$pmsKey])) {
+                if (isset($usedPms[$pmsKey])) {
                     continue;
                 }
 
@@ -182,7 +199,7 @@ class ApiController
                 $result = InterpolationEngine::predict($targetLab, $anchors, $k, $noiseThreshold);
 
                 if (empty($result['components'])) {
-                    $skipped[] = $pmsKey;
+                    $skippedColors++;
                     continue;
                 }
 
@@ -198,21 +215,27 @@ class ApiController
                 ];
             }
 
-            // Sort by confidence descending
             usort($predictions, fn($a, $b) => $b['confidence'] <=> $a['confidence']);
 
             $elapsed = round((microtime(true) - $startTime) * 1000);
 
+            $globalWarnings = [];
+            if (count($anchors) < 20) {
+                $globalWarnings[] = 'Fewer than 20 anchors. Predictions are more reliable with more anchors.';
+            }
+            if (!empty($skippedAnchors)) {
+                $globalWarnings[] = count($skippedAnchors) . ' anchor(s) skipped (see details).';
+            }
+
             json_response([
-                'series'      => $series,
-                'predictions' => $predictions,
-                'total'       => count($predictions),
-                'skipped'     => count($skipped),
-                'anchorCount' => count($anchors),
-                'elapsed_ms'  => $elapsed,
-                'warnings'    => count($anchors) < 20
-                    ? ['Fewer than 20 anchors selected. Predictions may have lower confidence.']
-                    : [],
+                'series'         => $series,
+                'predictions'    => $predictions,
+                'total'          => count($predictions),
+                'skippedColors'  => $skippedColors,
+                'anchorCount'    => count($anchors),
+                'skippedAnchors' => $skippedAnchors,
+                'elapsed_ms'     => $elapsed,
+                'warnings'       => $globalWarnings,
             ]);
         } catch (\Throwable $e) {
             json_response(['error' => 'Prediction failed: ' . $e->getMessage()], 500);
@@ -220,26 +243,13 @@ class ApiController
     }
 
     /**
-     * POST /api/predictions/save
-     * Save a single prediction.
-     */
-    public function savePrediction(): void
-    {
-        CSRF::validateRequest();
-        $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
-
-        $this->doSave($input);
-    }
-
-    /**
      * POST /api/predictions/save-batch
-     * Save multiple predictions.
      */
     public function saveBatch(): void
     {
         CSRF::validateRequest();
         $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
-        $items = $input['predictions'] ?? [];
+        $items  = $input['predictions'] ?? [];
         $series = $input['series'] ?? '';
 
         if (empty($items)) {
@@ -248,7 +258,7 @@ class ApiController
         }
 
         $db = Database::getInstance();
-        $saved   = 0;
+        $saved = 0;
         $skipped = 0;
 
         $db->beginTransaction();
@@ -256,14 +266,9 @@ class ApiController
             foreach ($items as $item) {
                 $item['series'] = $series;
                 $result = $this->doSaveSingle($db, $item);
-                if ($result === 'saved') {
-                    $saved++;
-                } else {
-                    $skipped++;
-                }
+                if ($result === 'exists') { $skipped++; } else { $saved++; }
             }
             $db->commit();
-
             json_response([
                 'success' => true,
                 'saved'   => $saved,
@@ -277,28 +282,43 @@ class ApiController
     }
 
     /**
+     * POST /api/predictions/save
+     */
+    public function savePrediction(): void
+    {
+        CSRF::validateRequest();
+        $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+        $db = Database::getInstance();
+        $db->beginTransaction();
+        try {
+            $result = $this->doSaveSingle($db, $input);
+            $db->commit();
+            if ($result === 'exists') {
+                json_response(['error' => 'Prediction already exists', 'exists' => true], 409);
+            } else {
+                json_response(['success' => true, 'id' => $result]);
+            }
+        } catch (\Throwable $e) {
+            $db->rollback();
+            json_response(['error' => 'Save failed: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * POST /api/predictions/delete
-     * Delete a saved prediction.
      */
     public function deletePrediction(): void
     {
         CSRF::validateRequest();
         $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
         $id = (int) ($input['id'] ?? 0);
-
-        if ($id <= 0) {
-            json_response(['error' => 'Invalid ID'], 400);
-            return;
-        }
-
-        $db = Database::getInstance();
-        $db->query("DELETE FROM predictions WHERE id = ?", [$id]);
+        if ($id <= 0) { json_response(['error' => 'Invalid ID'], 400); return; }
+        Database::getInstance()->query("DELETE FROM predictions WHERE id = ?", [$id]);
         json_response(['success' => true]);
     }
 
     /**
      * GET /api/predictions/export?series=...
-     * Export predictions as CSV.
      */
     public function export(): void
     {
@@ -334,7 +354,7 @@ class ApiController
         header('Content-Disposition: attachment; filename="predictions_' . date('Ymd') . '.csv"');
 
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['Series', 'PMS Number', 'PMS Name', 'L*', 'a*', 'b*', 'Confidence', 'Source', 'Components']);
+        fputcsv($out, ['Series', 'PMS Number', 'PMS Name', 'L*', 'a*', 'b*', 'Confidence', 'Source', 'Pigment Components']);
 
         foreach ($predictions as $p) {
             $comps = $componentsByPrediction[$p['id']] ?? [];
@@ -342,27 +362,18 @@ class ApiController
                 fn($c) => $c['component_code'] . ' ' . round($c['percentage'] * 100, 2) . '%',
                 $comps
             ));
-
             fputcsv($out, [
-                $p['series_name'],
-                $p['pms_number'],
-                $p['pms_name'],
-                $p['lab_l'],
-                $p['lab_a'],
-                $p['lab_b'],
-                $p['confidence_score'],
-                $p['source'],
-                $compStr,
+                $p['series_name'], $p['pms_number'], $p['pms_name'],
+                $p['lab_l'], $p['lab_a'], $p['lab_b'],
+                $p['confidence_score'], $p['source'], $compStr,
             ]);
         }
-
         fclose($out);
         exit;
     }
 
     /**
      * POST /api/custom-lab/match
-     * Match a custom Lab value against a series.
      */
     public function customLabMatch(): void
     {
@@ -373,6 +384,7 @@ class ApiController
         $a      = (float) ($input['a'] ?? 0);
         $b      = (float) ($input['b'] ?? 0);
         $series = trim($input['series'] ?? '');
+        $anchorInputs = $input['anchors'] ?? [];
         $k      = (int) ($input['k'] ?? (int) get_setting('prediction_k', '5'));
         $noiseThreshold = (int) ($input['noiseThreshold'] ?? (int) get_setting('noise_threshold', '2'));
 
@@ -380,7 +392,6 @@ class ApiController
             json_response(['error' => 'Series name required'], 400);
             return;
         }
-
         if ($L < 0 || $L > 100) {
             json_response(['error' => 'L* must be between 0 and 100'], 422);
             return;
@@ -392,33 +403,43 @@ class ApiController
 
         try {
             $svc = new CMSFormulaService();
-            $seriesFormulas = $svc->getSeriesFormulas($series);
+
+            // If specific anchors provided, use those; otherwise use all series formulas
+            if (!empty($anchorInputs)) {
+                $itemCodes = array_column($anchorInputs, 'itemCode');
+                $pmsMap = [];
+                foreach ($anchorInputs as $ai) {
+                    $pmsMap[$ai['itemCode']] = trim($ai['pmsNumber'] ?? '');
+                }
+                $formulaData = $svc->getPigmentComponents($itemCodes);
+            } else {
+                // Fallback: use all formulas with detected PMS numbers
+                $seriesFormulas = $svc->getSeriesFormulas($series);
+                $itemCodes = [];
+                $pmsMap = [];
+                foreach ($seriesFormulas as $item) {
+                    if (!empty($item['detected_pms']) && $item['pigment_count'] > 0) {
+                        $itemCodes[] = $item['ItemCode'];
+                        $pmsMap[$item['ItemCode']] = $item['detected_pms'];
+                    }
+                }
+                $formulaData = $svc->getPigmentComponents($itemCodes);
+            }
 
             // Build anchor list
             $anchors = [];
-            foreach ($seriesFormulas as $item) {
-                $colorPart = $item['color_part'] ?? '';
-                $pmsNumber = CMSFormulaService::extractPmsNumber($colorPart);
+            foreach ($formulaData as $code => $item) {
+                $pmsNumber = $pmsMap[$code] ?? '';
+                if ($pmsNumber === '') continue;
                 $labData = PantoneLabService::getLabForColor($pmsNumber);
-                if (!$labData || empty($item['components'])) {
-                    continue;
-                }
-
-                $components = [];
-                foreach ($item['components'] as $c) {
-                    $components[] = [
-                        'code'        => $c['component_code'],
-                        'description' => $c['component_description'],
-                        'percentage'  => (float) $c['percentage'],
-                    ];
-                }
+                if (!$labData || empty($item['pigments'])) continue;
 
                 $anchors[] = [
-                    'itemCode'   => $item['ItemCode'],
+                    'itemCode'   => $code,
                     'pmsNumber'  => $pmsNumber,
-                    'pmsName'    => $colorPart,
+                    'pmsName'    => $labData['name'] ?? $pmsNumber,
                     'lab'        => ['L' => (float) $labData['L'], 'a' => (float) $labData['a'], 'b' => (float) $labData['b']],
-                    'components' => $components,
+                    'components' => $item['pigments'],
                 ];
             }
 
@@ -448,44 +469,19 @@ class ApiController
 
     /**
      * GET /api/cms/test
-     * Test the CMS database connection.
      */
     public function testCmsConnection(): void
     {
-        if (!is_admin()) {
-            json_response(['error' => 'Admin only'], 403);
-            return;
-        }
-
+        if (!is_admin()) { json_response(['error' => 'Admin only'], 403); return; }
         CMSDatabase::reset();
         try {
-            $result = CMSDatabase::getInstance()->testConnection();
-            json_response($result);
+            json_response(CMSDatabase::getInstance()->testConnection());
         } catch (\Throwable $e) {
             json_response(['success' => false, 'message' => $e->getMessage()]);
         }
     }
 
-    // ── Private helpers ──────────────────────────────────────
-
-    private function doSave(array $input): void
-    {
-        $db = Database::getInstance();
-        $db->beginTransaction();
-        try {
-            $result = $this->doSaveSingle($db, $input);
-            $db->commit();
-
-            if ($result === 'exists') {
-                json_response(['error' => 'Prediction already exists for this series/color', 'exists' => true], 409);
-            } else {
-                json_response(['success' => true, 'id' => $result]);
-            }
-        } catch (\Throwable $e) {
-            $db->rollback();
-            json_response(['error' => 'Save failed: ' . $e->getMessage()], 500);
-        }
-    }
+    // ── Private ──────────────────────────────────────────────
 
     private function doSaveSingle(Database $db, array $data): string|int
     {
@@ -493,14 +489,11 @@ class ApiController
         $pmsNumber = $data['pmsNumber'] ?? '';
         $source    = $data['source'] ?? 'predicted';
 
-        // Check for existing
         $existing = $db->fetch(
             "SELECT id FROM predictions WHERE series_name = ? AND pms_number = ?",
             [$series, $pmsNumber]
         );
-        if ($existing) {
-            return 'exists';
-        }
+        if ($existing) return 'exists';
 
         $predictionId = $db->insert('predictions', [
             'series_name'      => $series,

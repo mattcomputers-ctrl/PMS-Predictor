@@ -7,16 +7,16 @@ namespace PantonePredictor\Services;
 class InterpolationEngine
 {
     /**
-     * Predict a formula for a target Lab color using inverse-distance weighted
-     * interpolation from anchor formulas.
+     * Predict a pigment-only formula for a target Lab color.
+     *
+     * Each anchor's components should already be pigment-only and normalized to 100%.
+     * The output formula will be 100% pigment materials.
      *
      * @param array $targetLab      ['L' => float, 'a' => float, 'b' => float]
-     * @param array $anchorFormulas Array of anchors, each:
-     *   ['pmsNumber' => string, 'lab' => ['L','a','b'], 'components' => [['code','description','percentage'], ...]]
+     * @param array $anchorFormulas Array of anchors, each with:
+     *   'pmsNumber', 'lab' => ['L','a','b'], 'components' => [['code','description','percentage'], ...]
      * @param int   $k              Number of nearest neighbors
-     * @param int   $noiseThreshold Minimum anchor count for a component to be kept
-     *
-     * @return array ['components' => [...], 'confidence' => float, 'nearestAnchors' => [...], 'warnings' => [...]]
+     * @param int   $noiseThreshold Minimum anchor count for a component to survive
      */
     public static function predict(
         array $targetLab,
@@ -35,13 +35,12 @@ class InterpolationEngine
             ];
         }
 
-        // Step 1: Compute distances
+        // Step 1: Compute distances (Delta-E76)
         foreach ($anchorFormulas as &$anchor) {
             $anchor['distance'] = self::deltaE76($targetLab, $anchor['lab']);
         }
         unset($anchor);
 
-        // Sort by distance ascending
         usort($anchorFormulas, fn($a, $b) => $a['distance'] <=> $b['distance']);
 
         // Step 2: Select K nearest
@@ -62,7 +61,7 @@ class InterpolationEngine
                 $comps[] = [
                     'code'        => $c['code'],
                     'description' => $c['description'],
-                    'percentage'  => $c['percentage'],
+                    'percentage'  => round($c['percentage'], 6),
                     'sort_order'  => $i,
                 ];
             }
@@ -88,9 +87,9 @@ class InterpolationEngine
         }
         unset($anch);
 
-        // Step 4: Weighted blend of components
-        $blended = [];     // code => ['code', 'description', 'weightedQty']
-        $anchorCount = []; // code => int (how many of K anchors have this component)
+        // Step 4: Weighted blend of pigment components
+        $blended = [];
+        $anchorCount = [];
 
         foreach ($nearest as $anch) {
             foreach ($anch['components'] as $comp) {
@@ -117,7 +116,7 @@ class InterpolationEngine
             }
         }
 
-        // Step 6: Normalize to sum = 1.0
+        // Step 6: Normalize to 100% (pigment-only)
         $total = array_sum(array_column($blended, 'weightedQty'));
         if ($total > 0) {
             foreach ($blended as &$comp) {
@@ -129,7 +128,6 @@ class InterpolationEngine
         // Sort by percentage descending
         usort($blended, fn($a, $b) => $b['percentage'] <=> $a['percentage']);
 
-        // Build final components
         $components = [];
         foreach (array_values($blended) as $i => $comp) {
             $components[] = [
@@ -148,16 +146,10 @@ class InterpolationEngine
         }
         $confidence = round($confidence, 1);
 
-        // Build nearest anchor summaries
-        $anchorSummaries = array_map(
-            [self::class, 'anchorSummary'],
-            $nearest
-        );
-
         return [
             'components'     => $components,
             'confidence'     => $confidence,
-            'nearestAnchors' => $anchorSummaries,
+            'nearestAnchors' => array_map([self::class, 'anchorSummary'], $nearest),
             'warnings'       => $warnings,
         ];
     }
