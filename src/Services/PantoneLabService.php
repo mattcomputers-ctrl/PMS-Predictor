@@ -29,7 +29,12 @@ class PantoneLabService
             throw new \RuntimeException('Invalid Pantone Lab dataset format.');
         }
 
-        self::$data = $json['colors'];
+        // Force all keys to strings (PHP json_decode converts numeric keys to int)
+        $colors = [];
+        foreach ($json['colors'] as $key => $value) {
+            $colors[(string) $key] = $value;
+        }
+        self::$data = $colors;
         return self::$data;
     }
 
@@ -66,7 +71,7 @@ class PantoneLabService
         // Strategy 4: Named color lookup (case-insensitive search)
         $upperId = strtoupper($id);
         foreach ($colors as $key => $entry) {
-            if (strtoupper($key) === $upperId) {
+            if (strtoupper((string) $key) === $upperId) {
                 return $entry;
             }
             // Match against the name field
