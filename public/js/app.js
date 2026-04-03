@@ -242,18 +242,7 @@
 
         document.getElementById('resultsFilter')?.addEventListener('input', debounce(() => renderResults(predictionsData), 200));
 
-        // Expand/collapse
-        document.addEventListener('click', e => {
-            const t = e.target.closest('.expand-toggle');
-            if (t) {
-                const row = document.getElementById(t.dataset.id ? `detail-${t.dataset.id}` : `rdetail-${t.dataset.ridx}`);
-                if (row) { row.classList.toggle('open'); t.classList.toggle('open'); }
-            }
-            const del = e.target.closest('.delete-prediction-btn');
-            if (del && confirm('Delete this prediction?')) {
-                api('/api/predictions/delete', { method: 'POST', body: { id: del.dataset.id } }).then(() => location.reload()).catch(e => alert(e.message));
-            }
-        });
+        // (expand/collapse and delete handlers are global — see bottom of file)
 
         // Result checkboxes
         document.getElementById('resultSelectAll')?.addEventListener('click', () => document.querySelectorAll('.result-cb').forEach(cb => cb.checked = true));
@@ -382,4 +371,21 @@
         r = Math.max(0, Math.min(255, Math.round(gm(r) * 255))); g = Math.max(0, Math.min(255, Math.round(gm(g) * 255))); bl = Math.max(0, Math.min(255, Math.round(gm(bl) * 255)));
         return '#' + [r, g, bl].map(c => c.toString(16).padStart(2, '0')).join('');
     }
+
+    // ══════════════════════════════════════════════════════════
+    //  GLOBAL: Expand/collapse and delete handlers (all pages)
+    // ══════════════════════════════════════════════════════════
+
+    document.addEventListener('click', e => {
+        const t = e.target.closest('.expand-toggle');
+        if (t) {
+            const row = document.getElementById(t.dataset.id ? `detail-${t.dataset.id}` : `rdetail-${t.dataset.ridx}`);
+            if (row) { row.classList.toggle('open'); t.classList.toggle('open'); }
+        }
+        const del = e.target.closest('.delete-prediction-btn');
+        if (del && confirm('Delete this prediction?')) {
+            api('/api/predictions/delete', { method: 'POST', body: { id: del.dataset.id } }).then(() => location.reload()).catch(err => alert(err.message));
+        }
+    });
+
 })();
